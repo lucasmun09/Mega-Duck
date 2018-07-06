@@ -119,7 +119,7 @@ def request_data(ser):
     # Record the data
 
     raw_data = read(ser, response_len)
-    while True:
+    while True: # waits for the ending opcode
         if ser.in_waiting >= 5:
             stopcode, packet = struct.unpack('<BI', read(ser, 5))
             if stopcode != 0x86:
@@ -139,23 +139,24 @@ def request_data(ser):
             data = raw_data[i] | (raw_data[i + 1] << 8)
             f.write('{}\n'.format(data))
     print('Output data written to 1-{} and 2-{}'.format(OUTPUT_FILE, OUTPUT_FILE))
-
+    return raw_data
 
 def send_sample(ser1, sample, sample_number):
     continue_code = 0x0B
+    packet_size = 100
     hex_sample_number = hex(sample_number)
     hex_packet_size = hex(packet_size)
     write(ser1, [hex_sample_number, hex_packet_size])
-    packet_size = 100
+    data_packet = []
     for i in range(0, int(len(sample)/packet_size)):
-        for j in range(0, sample_size):
-            data_packet[j] = sample[j + sample_size*i]
+        for j in range(0, packet_size):
+            data_packet[j] = sample[j + packet_size*i]
         length = len(data_packet)
         data_packet[length+1] = continue_code
         write(ser1, data_packet)
         while True:
             if ser1.in_waiting == 1:
-                opcode, response = struct.unpack('<BI', read(ser, 5))
+                opcode, response = struct.unpack('<BI', read(ser1, 5))
                 if opcode == 0x04:
                     # ACK
                     break
@@ -229,6 +230,7 @@ def reset(ser):
 def main():
     my_daq = init_daq(PORT)  # initialize DAQ object
     my_client = init_client_coms(CLIENT_PORT)
+    request_data(my_daq)  # request data, 20K samples each per channel: A0 and A1
 
     #  chirp = generate_chirp() Generates the chirp and the data to be queued
     #  upload_chirp(my_daq, chirp), request chirp, with given data
@@ -237,14 +239,12 @@ def main():
     while True:
         if ready:
             print('collecting next data point')
-            request_data(my_daq)  # request data, 20K samples each per channel: A0 and A1
-            request_data(my_daq)  # request data, 20K samples each per channel: A0 and A1
+            data = request_data(my_daq)  # request data, 20K samples each per channel: A0 and A1
             collected = collected + 1
         if collected % 10 == 0 & collected != 0:
             send_sample(my_client, data, collected)
         if collected == 20:
             break
-
     my_daq.close()
     print("Closing connection")
 
